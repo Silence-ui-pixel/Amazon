@@ -1,0 +1,59 @@
+[project]
+name = "keyword-library-backend"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "playwright>=1.58,<2",
+    "fastapi>=0.115,<1",
+    "uvicorn>=0.34,<1",
+    "pillow>=11,<13",
+    "python-multipart>=0.0.20,<1",
+    "httpx>=0.28,<1",
+    "langgraph>=1.2,<2",
+    "sqlalchemy>=2.0,<3",
+    "alembic>=1.14,<2",
+    "psycopg[binary]>=3.2,<4",
+    "psycopg-pool>=3.2,<4",
+    # LangGraph 1.2 uses checkpoint 4.x; postgres 3.2 is the matching adapter line.
+    "langgraph-checkpoint-postgres>=3.2,<4",
+]
+
+[build-system]
+requires = ["setuptools>=75,<81"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+namespaces = true
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.11,<1",
+    "pyright>=1.1.400,<2",
+    "pytest>=8.3,<9",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B", "SIM", "ANN"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pyright]
+# 严格类型门禁覆盖实际部署的服务器与 Windows Agent；pytest 测试及一次性浏览器
+# 辅助脚本包含 fixture 动态注入和故意无效输入，由 Ruff + pytest 约束。
+include = ["app", "agent"]
+exclude = [".venv", "migrations"]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+venvPath = "."
+venv = ".venv"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-markers"

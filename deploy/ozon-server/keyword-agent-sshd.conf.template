@@ -1,0 +1,10 @@
+Match User keyword-agent-tunnel
+    AuthenticationMethods publickey
+    PasswordAuthentication no
+    AllowTcpForwarding remote
+    GatewayPorts clientspecified
+    PermitListen __GATEWAY__:17100
+    PermitTTY no
+    X11Forwarding no
+    AllowAgentForwarding no
+    ForceCommand /usr/local/libexec/keyword-agent-tunnel-command

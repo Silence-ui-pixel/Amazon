@@ -1,0 +1,26 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const ts = require('typescript');
+const { ref, nextTick, effectScope } = require('vue');
+const source = fs.readFileSync('src/panelSync.ts', 'utf8');
+const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
+const mod = { exports: {} };
+new Function('require', 'module', 'exports', compiled)(require, mod, mod.exports);
+(async () => {
+  const revision = ref(0), dirty = ref(false), busy = ref(false);
+  let calls = 0;
+  const scope = effectScope();
+  let pending;
+  scope.run(() => { pending = mod.exports.usePanelSync(() => revision.value, () => dirty.value || busy.value, async () => { calls++; }); });
+  const settle = async () => { await nextTick(); await Promise.resolve(); await nextTick(); };
+  revision.value++; await settle(); assert.equal(calls, 1);
+  await settle(); assert.equal(calls, 1, 'no feedback refresh');
+  dirty.value = true; revision.value++; await settle();
+  assert.equal(calls, 1); assert.equal(pending.value, true, 'keep unsaved draft');
+  revision.value++; await settle(); dirty.value = false; await settle();
+  assert.equal(calls, 2, 'coalesce deferred revisions');
+  busy.value = true; revision.value++; await settle(); assert.equal(calls, 2);
+  busy.value = false; await settle(); assert.equal(calls, 3);
+  scope.stop(); revision.value++; await settle(); assert.equal(calls, 3);
+  console.log('panel sync: dedupe, dirty/busy deferral, disposal passed');
+})().catch(e => { console.error(e); process.exitCode = 1; });

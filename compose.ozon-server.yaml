@@ -1,0 +1,42 @@
+# OZON Linux 服务器专用覆盖：宿主机 Nginx 负责公网 HTTPS，容器只监听 loopback。
+services:
+  postgres:
+    # 服务器无法直连 Docker Hub，使用已验证可用的 DaoCloud 代理。
+    image: docker.m.daocloud.io/library/postgres:16.8
+    ports: !override
+      - "127.0.0.1:${POSTGRES_PORT:-15433}:5432"
+
+  backend:
+    build:
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
+        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-300}
+    environment:
+      # 保留 CSV 后缀，用 apiKey 与 openAiCompatible 两行传入密钥和兼容接口地址。
+      DASHSCOPE_API_KEY_FILE: /run/secrets/dashscope/api-key.csv
+      KEYWORD_BROWSER_AGENT_URL: http://keyword-agent-host:17100
+      KEYWORD_BROWSER_AGENT_TOKEN: ${KEYWORD_BROWSER_AGENT_TOKEN:?KEYWORD_BROWSER_AGENT_TOKEN is required}
+      # 与 Gateway 一起由 install-agent-tunnel.sh 生成；网络重建后必须成对更新。
+      KEYWORD_AGENT_NETWORK_ID: ${KEYWORD_AGENT_NETWORK_ID:?KEYWORD_AGENT_NETWORK_ID is required}
+    extra_hosts:
+      - "keyword-agent-host:${KEYWORD_AGENT_GATEWAY_IP:?KEYWORD_AGENT_GATEWAY_IP is required}"
+    group_add:
+      - "${DASHSCOPE_SECRET_GID:-61001}"
+    volumes:
+      - type: bind
+        source: ${DASHSCOPE_SECRET_DIR:?DASHSCOPE_SECRET_DIR is required}
+        target: /run/secrets/dashscope
+        read_only: true
+
+  migration:
+    build:
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
+        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-300}
+
+  frontend:
+    environment:
+      # TLS 在宿主机 Nginx 终止，容器内部保持 HTTP。
+      REQUIRE_TLS: "0"
+    ports: !override
+      - "127.0.0.1:${HTTP_PORT:-18080}:80"

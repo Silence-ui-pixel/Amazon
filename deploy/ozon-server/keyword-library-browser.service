@@ -1,0 +1,22 @@
+[Unit]
+Description=Keyword Library browser
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=keyword-collector
+Group=keyword-collector
+RuntimeDirectory=keyword-collector
+RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
+StateDirectory=keyword-collector
+StateDirectoryMode=0700
+Environment=HOME=/var/lib/keyword-collector
+UMask=0077
+ExecStart=/usr/bin/chromium --headless --remote-debugging-address=127.0.0.1 --remote-debugging-port=38979 --user-data-dir=/var/lib/keyword-collector/browser about:blank
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,25 @@
+services:
+  postgres:
+    ports: !reset []
+
+  backend:
+    environment:
+      DASHSCOPE_API_KEY_FILE: /run/secrets/dashscope/api-key
+    volumes:
+      - type: bind
+        source: ${DASHSCOPE_SECRET_DIR:?DASHSCOPE_SECRET_DIR is required}
+        target: /run/secrets/dashscope
+        read_only: true
+
+  frontend:
+    environment:
+      SERVER_NAME: ${SERVER_NAME:?SERVER_NAME is required}
+      REQUIRE_TLS: "1"
+    ports: !override
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - type: bind
+        source: ${TLS_CERT_DIR:?TLS_CERT_DIR is required}
+        target: /etc/letsencrypt
+        read_only: true

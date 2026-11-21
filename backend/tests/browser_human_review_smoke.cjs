@@ -1,0 +1,50 @@
+const assert = require('node:assert/strict');
+const {chromium} = require('C:/Users/Administrator/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+(async()=>{
+  const browser=await chromium.launch({headless:true});
+  const page=await browser.newPage({viewport:{width:1440,height:1000}});
+  const errors=[];page.on('pageerror',e=>errors.push(e.message));
+  try{
+    const seed=await(await page.request.get('http://127.0.0.1:8014/__test__/seed')).json();
+    await page.addInitScript(seed=>localStorage.setItem('keyword-library-active-run-v1',JSON.stringify(seed)),seed);
+    await page.route('**/api/v1/**',async route=>{
+      const response=await route.fetch({url:route.request().url().replace('127.0.0.1:5175','127.0.0.1:8014')});
+      await route.fulfill({response});
+    });
+    await page.goto('http://127.0.0.1:5175/');
+    await page.locator('button[data-step="6"]').click();
+    const traffic=page.getByRole('region',{name:'筛选流量入口',exact:true});
+    await traffic.getByText('全部候选已审核，第七步已完成。',{exact:true}).waitFor();
+    await traffic.getByText('批量审核本页关键词',{exact:true}).click();
+    await traffic.getByLabel('批量选择 cooling blanket',{exact:true}).check();
+    await traffic.getByLabel('批量选择 portable cooling blankets',{exact:true}).check();
+    assert.equal(await traffic.getByLabel('批量选择 =1+1',{exact:true}).count(),0);
+    await traffic.getByLabel('批量决定',{exact:true}).selectOption('keep');
+    await traffic.getByLabel('批量优先级',{exact:true}).selectOption('high');
+    await traffic.getByLabel('批量审核人',{exact:true}).fill('批量验收');
+    await traffic.getByLabel('批量审核理由',{exact:true}).fill('逐词浏览后保留观察');
+    await traffic.getByLabel('批量核对说明',{exact:true}).fill('本批逐词人工核对，原有证据保留');
+    await traffic.getByRole('button',{name:'保存 2 个词的批量审核',exact:true}).click();
+    await traffic.getByText('共 3 词 · 已明确审核 2 / 2 词 · 审核版本 4',{exact:true}).waitFor();
+    await page.locator('button[data-step="7"]').click();
+    const library=page.getByRole('region',{name:'层级填充与发布',exact:true});
+    await library.getByRole('button',{name:'生成入库草稿',exact:true}).click();
+    await library.getByText('共 2 词 · 草稿修订 0 · 1 个未分层词',{exact:true}).waitFor();
+    assert.equal(await library.getByRole('region',{name:'发布前异常词检查',exact:true}).count(),0);
+    await library.getByLabel('发布人（本地记录）',{exact:true}).fill('发布验收');
+    await library.getByLabel('发布说明',{exact:true}).fill('异常证据已逐词检查');
+    await library.getByRole('checkbox',{name:'我已核对关键词、未分层词和用途；后续调整将生成新版本。',exact:true}).check();
+    const publish=library.getByRole('button',{name:'发布关键词库版本',exact:true});
+    assert.equal(await publish.isEnabled(),true);
+    await publish.click();
+    await library.getByText('已发布 v1 · 发布验收 · 异常证据已逐词检查。该版本只读。',{exact:true}).waitFor();
+    const base=`http://127.0.0.1:8014/api/v1/projects/${seed.run.project_id}/pipeline-runs/${seed.run.id}`;
+    const report=(await(await page.request.get(base+'/library')).json())[0];
+    assert.equal('exception_reviews' in report.publication,false);
+    assert.equal(report.request.traffic_version,4);
+    await page.setViewportSize({width:390,height:844});
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+    assert.deepEqual(errors,[]);
+    console.log(JSON.stringify({batchReview:true,excludedWordsProtected:true,exceptionReviewRemoved:true,mobileNoOverflow:true,errors}));
+  }finally{await page.unrouteAll({behavior:'wait'});await browser.close();}
+})().catch(e=>{console.error(e);process.exitCode=1;});

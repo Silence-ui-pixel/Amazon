@@ -1,0 +1,87 @@
+// Real local FastAPI + Vue, externally sourced reports use isolated fixtures.
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const {chromium} = require('C:/Users/Administrator/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+(async () => {
+  const browser = await chromium.launch({headless:true});
+  const page = await browser.newPage({viewport:{width:1440,height:1000}});
+  const errors = [];
+  page.on('pageerror',e => errors.push(e.message));
+  try {
+    const seed = await (await page.request.get('http://127.0.0.1:8014/__test__/seed')).json();
+    await page.addInitScript(data => localStorage.setItem('keyword-library-active-run-v1',JSON.stringify(data)),seed);
+    await page.route('**/api/v1/**',async route => {
+      const response = await route.fetch({url:route.request().url().replace('127.0.0.1:5175','127.0.0.1:8014')});
+      await route.fulfill({response});
+    });
+    await page.goto('http://127.0.0.1:5175/');
+    await page.locator('button[data-step="7"]').click();
+    const panel = page.getByRole('region',{name:'层级填充与发布',exact:true});
+    await panel.getByRole('button',{name:'生成入库草稿',exact:true}).click();
+    await panel.getByText('共 2 词 · 草稿修订 0 · 1 个未分层词',{exact:true}).waitFor();
+    await panel.getByRole('button',{name:'编辑 cooling blanket',exact:true}).click();
+    await panel.getByLabel('入库优先级',{exact:true}).selectOption('high');
+    await panel.getByLabel('使用状态',{exact:true}).selectOption('listing');
+    await panel.getByLabel('辅助 ASIN（逗号分隔，最多 30 个）',{exact:true}).fill('b012345678');
+    await panel.getByLabel('操作人（本地记录）',{exact:true}).fill('浏览器验收');
+    await panel.getByLabel('修改说明',{exact:true}).fill('用于标题');
+    await panel.getByRole('button',{name:'保存入库字段',exact:true}).click();
+    await panel.getByText('共 2 词 · 草稿修订 1 · 1 个未分层词',{exact:true}).waitFor();
+    await panel.getByLabel('发布人（本地记录）',{exact:true}).fill('发布验收');
+    await panel.getByLabel('发布说明',{exact:true}).fill('本月确认');
+    assert.equal(await panel.getByRole('region',{name:'发布前异常词检查',exact:true}).count(),0);
+    await panel.getByRole('checkbox',{name:'我已核对关键词、未分层词和用途；后续调整将生成新版本。',exact:true}).check();
+    await panel.getByRole('button',{name:'发布关键词库版本',exact:true}).click();
+    await panel.getByText('已发布 v1 · 发布验收 · 本月确认。该版本只读。',{exact:true}).waitFor();
+    assert.equal(await panel.getByLabel('使用状态',{exact:true}).isDisabled(),true);
+    await panel.getByRole('button',{name:'基于此版本创建修订草稿',exact:true}).click();
+    await panel.getByText('共 2 词 · 草稿修订 0 · 1 个未分层词',{exact:true}).waitFor();
+    assert.equal(await panel.getByLabel('使用状态',{exact:true}).isDisabled(),false);
+    const historyOptions = await panel.getByLabel('入库版本',{exact:true}).locator('option').allTextContents();
+    const publishedIndex = historyOptions.findIndex(value => value.startsWith('发布 v1'));
+    await panel.getByLabel('入库版本',{exact:true}).selectOption({index:publishedIndex});
+    const event = page.waitForEvent('download');
+    await panel.getByRole('button',{name:'下载关键词库 CSV',exact:true}).click();
+    const csv = await fs.readFile(await (await event).path(),'utf8');
+    assert.match(csv,/B012345678/); assert.match(csv,/sop-library-v1/); assert.match(csv,/2026-10-17/);
+    await panel.getByLabel('筛选层级',{exact:true}).selectOption('unranked');
+    assert.equal(await panel.locator('tbody tr').count(),1);
+    await panel.getByLabel('筛选层级',{exact:true}).selectOption('all');
+    await page.reload();
+    await panel.getByLabel('入库版本',{exact:true}).locator('option').filter({hasText:'发布 v1'}).waitFor({state:'attached'});
+    await panel.getByLabel('入库版本',{exact:true}).selectOption({index:publishedIndex});
+    await panel.getByText('已发布 v1 · 发布验收 · 本月确认。该版本只读。',{exact:true}).waitFor();
+    await page.addStyleTag({content:'.topbar{visibility:hidden!important}'});
+    await panel.screenshot({path:'../outputs/library-desktop.png'});
+    await page.setViewportSize({width:390,height:844});
+    await panel.screenshot({path:'../outputs/library-mobile.png'});
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),false);
+    const apiBase = `http://127.0.0.1:8014/api/v1/projects/${seed.run.project_id}/pipeline-runs/${seed.run.id}`;
+    const draft = (await (await page.request.get(apiBase+'/library')).json()).find(r=>r.publication_version === 1);
+    const traffic = (await (await page.request.get(apiBase+'/traffic')).json())[0];
+    const reviews = await (await page.request.get(`${apiBase}/traffic/${traffic.id}/reviews`)).json();
+    assert.equal((await page.request.put(`${apiBase}/traffic/${traffic.id}/review`,{data:{...reviews[0].data,expected_version:traffic.version,decision:'exclude'}})).status(),200);
+    await panel.getByRole('button',{name:'读取入库历史（丢弃未保存修改）',exact:true}).click();
+    await panel.getByText('来源已变更：此版本仅供历史查看，请用最新审核结果生成草稿。',{exact:true}).waitFor();
+    assert.equal((await (await page.request.get(`${apiBase}/library/${draft.id}`)).json()).entries.length,2);
+    // Refresh step 7 so that the panel receives the new completion/source version.
+    await page.getByRole('region',{name:'筛选流量入口',exact:true}).getByRole('button',{name:'读取筛选历史（丢弃未保存修改）',exact:true}).click();
+    await panel.getByRole('button',{name:'生成入库草稿',exact:true}).click();
+    await panel.getByText('共 1 词 · 草稿修订 0 · 0 个未分层词',{exact:true}).waitFor();
+    await panel.getByLabel('修改说明',{exact:true}).fill('我的未保存修改');
+    assert.equal(await panel.getByRole('button',{name:'生成入库草稿',exact:true}).isDisabled(),true);
+    const second = (await (await page.request.get(apiBase+'/library')).json())[0];
+    assert.equal((await page.request.put(`${apiBase}/library/${second.id}/entry`,{data:{expected_version:0,keyword:'portable cooling blankets',priority:'low',usage:'paused',auxiliary_asins:[],reason:'其他客户端','operator':'并发用户'}})).status(),200);
+    await panel.getByLabel('操作人（本地记录）',{exact:true}).fill('浏览器验收');
+    await panel.getByRole('button',{name:'保存入库字段',exact:true}).click();
+    await panel.getByRole('alert').filter({hasText:'版本已发布或已更新，请刷新'}).waitFor();
+    assert.equal(await panel.getByLabel('修改说明',{exact:true}).inputValue(),'我的未保存修改');
+    assert.deepEqual(errors,[]);
+    console.log(JSON.stringify({realApi:true,unranked:true,edit:true,publish:true,immutable:true,csv:true,restore:true,upstreamInvalidation:true,conflictPreservesDraft:true,mobileNoOverflow:true,errors}));
+  } catch(e) {
+    await page.screenshot({path:'../outputs/library-failure.png',fullPage:true});
+    console.error('PAGE ERRORS',errors);
+    console.error((await page.locator('body').innerText()).slice(-6000));
+    throw e;
+  } finally { await page.unrouteAll({behavior:'wait'}); await browser.close(); }
+})().catch(e => {console.error(e);process.exitCode=1;});

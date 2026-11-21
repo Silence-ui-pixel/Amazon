@@ -1,0 +1,5 @@
+# Apply after compose.server-collector.yaml for the Windows collector deployment.
+services:
+  collector:
+    profiles: [server-collector]
+    restart: 'no'

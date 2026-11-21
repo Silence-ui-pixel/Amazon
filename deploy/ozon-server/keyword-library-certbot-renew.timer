@@ -1,0 +1,11 @@
+[Unit]
+Description=Twice-daily keyword-library TLS renewal check
+
+[Timer]
+OnCalendar=*-*-* 03,15:17:00
+RandomizedDelaySec=45m
+Persistent=true
+Unit=keyword-library-certbot-renew.service
+
+[Install]
+WantedBy=timers.target

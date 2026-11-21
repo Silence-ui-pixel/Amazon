@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+expected='check-network __NETWORK_ID__'
+[ "${SSH_ORIGINAL_COMMAND:-}" = "$expected" ] || exit 1
+[ -d '/sys/class/net/__BRIDGE__' ] || exit 1
+printf 'ok\n'

@@ -1,0 +1,38 @@
+# Apply last, after the current production overlays.
+services:
+  collector:
+    image: ${KEYWORD_COLLECTOR_IMAGE:-keyword-library-collector:server-local}
+    network_mode: host
+    user: "${KEYWORD_COLLECTOR_UID:?KEYWORD_COLLECTOR_UID is required}:${KEYWORD_COLLECTOR_GID:-61002}"
+    restart: unless-stopped
+    command: ["python", "-m", "agent.run"]
+    environment:
+      KEYWORD_BROWSER_AGENT_TOKEN: ${KEYWORD_BROWSER_AGENT_TOKEN:?KEYWORD_BROWSER_AGENT_TOKEN is required}
+      KEYWORD_SERVER_COLLECTOR_SOCKET: /run/keyword-collector/agent.sock
+      KEYWORD_AGENT_DATA_DIR: /collector-data
+      KEYWORD_STORAGE_ROOT: /collector-data
+      KEYWORD_AMAZON_CDP_PORT: "38979"
+      KEYWORD_ABA_CDP_PORT: "38979"
+      KEYWORD_SELLERSPRITE_CDP_PORT: "38979"
+    volumes:
+      - /run/keyword-collector:/run/keyword-collector
+      - /var/lib/keyword-collector/agent:/collector-data
+  backend:
+    environment:
+      KEYWORD_BROWSER_AGENT_URL: ""
+      KEYWORD_BROWSER_DEVICE_ROUTING: "0"
+      KEYWORD_BROWSER_AGENT_TOKEN: ${KEYWORD_BROWSER_AGENT_TOKEN:?KEYWORD_BROWSER_AGENT_TOKEN is required}
+      KEYWORD_SERVER_COLLECTOR_SOCKET: /run/keyword-collector/agent.sock
+    group_add:
+      - "${KEYWORD_COLLECTOR_GID:-61002}"
+    ports: !override []
+    volumes:
+      - type: bind
+        source: /run/keyword-collector
+        target: /run/keyword-collector
+        read_only: true
+        bind:
+          create_host_path: false
+  frontend:
+    ports: !override
+      - "127.0.0.1:${HTTP_PORT:-18080}:80"

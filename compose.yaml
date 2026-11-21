@@ -1,0 +1,95 @@
+name: keyword-library
+
+x-backend-environment: &backend-environment
+  KEYWORD_DATABASE_HOST: postgres
+  KEYWORD_DATABASE_PORT: "5432"
+  POSTGRES_USER: ${POSTGRES_USER:-keyword}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-keyword}
+  POSTGRES_DB: ${POSTGRES_DB:-keyword_library}
+  KEYWORD_STORAGE_ROOT: /app/data
+  KEYWORD_BROWSER_AGENT_URL: ${KEYWORD_BROWSER_AGENT_URL:-}
+  KEYWORD_BROWSER_AGENT_TOKEN: ${KEYWORD_BROWSER_AGENT_TOKEN:-}
+  DASHSCOPE_MODEL: ${DASHSCOPE_MODEL:-qwen3.8-max}
+  DASHSCOPE_VISION_MODEL: ${DASHSCOPE_VISION_MODEL:-}
+  DASHSCOPE_BASE_URL: ${DASHSCOPE_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+  KEYWORD_TRAFFIC_MODEL_CONCURRENCY: ${KEYWORD_TRAFFIC_MODEL_CONCURRENCY:-2}
+  # 小量验证：每个商品词比对多少个自然商品（正式取样可调回 30）。
+  KEYWORD_TERM_SAMPLE_LIMIT: ${KEYWORD_TERM_SAMPLE_LIMIT:-30}
+
+services:
+  postgres:
+    image: postgres:16.8
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-keyword}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-keyword}
+      POSTGRES_DB: ${POSTGRES_DB:-keyword_library}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-keyword} -d ${POSTGRES_DB:-keyword_library}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  migration:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment: *backend-environment
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment: *backend-environment
+    volumes:
+      - backend_storage:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migration:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health/live', timeout=3)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
+    environment:
+      BACKEND_UPSTREAM: http://backend:8000
+    ports:
+      - "${HTTP_PORT:-8080}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
+volumes:
+  pgdata:
+  backend_storage:
